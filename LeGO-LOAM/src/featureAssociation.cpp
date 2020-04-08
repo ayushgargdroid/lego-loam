@@ -816,47 +816,6 @@ public:
 	    }
     }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     void TransformToStart(PointType const * const pi, PointType * const po)
     {
         float s = 10 * (pi->intensity - int(pi->intensity));
@@ -1735,6 +1694,7 @@ public:
         laserOdometry.pose.pose.position.x = transformSum[3];
         laserOdometry.pose.pose.position.y = transformSum[4];
         laserOdometry.pose.pose.position.z = transformSum[5];
+        // ROS_INFO("I am publishing shit");
         pubLaserOdometry.publish(laserOdometry);
 
         laserOdometryTrans.stamp_ = cloudHeader.stamp;
@@ -1824,7 +1784,9 @@ public:
             newSegmentedCloud = false;
             newSegmentedCloudInfo = false;
             newOutlierCloud = false;
+            // ROS_INFO("I got a new cloud");
         }else{
+            // ROS_INFO("Nothing new");
             return;
         }
         /**
@@ -1876,10 +1838,16 @@ int main(int argc, char** argv)
     {
         ros::spinOnce();
 
+        // ROS_INFO("If this even there?");
+
         FA.runFeatureAssociation();
+
+        // ROS_INFO("ran the loop fn");
 
         rate.sleep();
     }
+
+    // ROS_INFO("Did you fucking exit?");
     
     ros::spin();
     return 0;
