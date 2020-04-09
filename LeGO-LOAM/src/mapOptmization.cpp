@@ -44,6 +44,11 @@
 
 #include <gtsam/nonlinear/ISAM2.h>
 
+#include <GeographicLib/UTMUPS.hpp>
+
+#include <nav_msgs/Path.h>
+#include <sensor_msgs/NavSatFix.h>
+
 using namespace gtsam;
 
 class mapOptimization{
@@ -70,14 +75,17 @@ private:
     ros::Publisher pubIcpKeyFrames;
     ros::Publisher pubRecentKeyFrames;
     ros::Publisher pubRegisteredCloud;
+    ros::Publisher pubGpsPath;
 
     ros::Subscriber subLaserCloudCornerLast;
     ros::Subscriber subLaserCloudSurfLast;
     ros::Subscriber subOutlierCloudLast;
     ros::Subscriber subLaserOdometry;
     ros::Subscriber subImu;
+    ros::Subscriber subGps;
 
     nav_msgs::Odometry odomAftMapped;
+    nav_msgs::Path pathMsg;
     tf::StampedTransform aftMappedTrans;
     tf::TransformBroadcaster tfBroadcaster;
 
@@ -219,6 +227,8 @@ private:
     float cRoll, sRoll, cPitch, sPitch, cYaw, sYaw, tX, tY, tZ;
     float ctRoll, stRoll, ctPitch, stPitch, ctYaw, stYaw, tInX, tInY, tInZ;
 
+    double start_x, start_y, gps_x, gps_y;
+
 public:
 
     
@@ -234,12 +244,14 @@ public:
         pubKeyPoses = nh.advertise<sensor_msgs::PointCloud2>("/key_pose_origin", 2);
         pubLaserCloudSurround = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_surround", 2);
         pubOdomAftMapped = nh.advertise<nav_msgs::Odometry> ("/aft_mapped_to_init", 5);
+        pubGpsPath = nh.advertise<nav_msgs::Path> ("/vehicle/path",2);
 
         subLaserCloudCornerLast = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_corner_last", 2, &mapOptimization::laserCloudCornerLastHandler, this);
         subLaserCloudSurfLast = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_surf_last", 2, &mapOptimization::laserCloudSurfLastHandler, this);
         subOutlierCloudLast = nh.subscribe<sensor_msgs::PointCloud2>("/outlier_cloud_last", 2, &mapOptimization::laserCloudOutlierLastHandler, this);
         subLaserOdometry = nh.subscribe<nav_msgs::Odometry>("/laser_odom_to_init", 5, &mapOptimization::laserOdometryHandler, this);
         subImu = nh.subscribe<sensor_msgs::Imu> (imuTopic, 50, &mapOptimization::imuHandler, this);
+        subGps = nh.subscribe<sensor_msgs::NavSatFix> (gpsTopic, 2, &mapOptimization::gpsHandler, this);
 
         pubHistoryKeyFrames = nh.advertise<sensor_msgs::PointCloud2>("/history_cloud", 2);
         pubIcpKeyFrames = nh.advertise<sensor_msgs::PointCloud2>("/corrected_cloud", 2);
@@ -371,6 +383,11 @@ public:
         aLoopIsClosed = false;
 
         latestFrameID = 0;
+
+        gps_x = 0;
+        gps_y = 0;
+        start_x = 0;
+        start_y = 0;
     }
 
     void transformAssociateToMap()
@@ -651,6 +668,25 @@ public:
         imuPitch[imuPointerLast] = pitch;
     }
 
+    void gpsHandler(const sensor_msgs::NavSatFix::ConstPtr& gpsMsg)
+    {
+        int zone;
+        bool northp;
+        GeographicLib::UTMUPS::Forward(gpsMsg->latitude,gpsMsg->longitude,zone,northp,gps_y,gps_x);
+
+        if(start_x == 0.0)
+        {
+            start_x = gps_x;
+            start_y = gps_y;
+        }
+
+        gps_x -= start_x;
+        gps_y -= start_y;
+
+
+        ROS_INFO("Got something %f %f",gps_x,gps_y);
+    }
+
     void publishTF(){
 
         geometry_msgs::Quaternion geoQuat = tf::createQuaternionMsgFromRollPitchYaw
@@ -691,12 +727,27 @@ public:
 
     void publishKeyPosesAndFrames(){
 
+
         if (pubKeyPoses.getNumSubscribers() != 0){
             sensor_msgs::PointCloud2 cloudMsgTemp;
             pcl::toROSMsg(*cloudKeyPoses3D, cloudMsgTemp);
             cloudMsgTemp.header.stamp = ros::Time().fromSec(timeLaserOdometry);
             cloudMsgTemp.header.frame_id = "/camera_init";
             pubKeyPoses.publish(cloudMsgTemp);
+        }
+
+        if(pubGpsPath.getNumSubscribers() != 0)
+        {
+            float theta = -20/180.0*3.14;
+
+            geometry_msgs::PoseStamped pose;
+            pathMsg.header.stamp = pose.header.stamp = ros::Time().fromSec(timeLaserOdometry);
+            pathMsg.header.frame_id = pose.header.frame_id = "/map";
+            pose.pose.position.x = cos(theta)*gps_x + sin(theta)*gps_y;
+            pose.pose.position.y = sin(theta)*gps_x - cos(theta)*gps_y;
+            pose.pose.position.z = cloudKeyPoses3D->points[cloudKeyPoses3D->points.size()-1].y;
+            pathMsg.poses.push_back(pose);
+            pubGpsPath.publish(pathMsg);
         }
 
         if (pubRecentKeyFrames.getNumSubscribers() != 0){

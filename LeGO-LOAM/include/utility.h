@@ -52,6 +52,7 @@ typedef pcl::PointXYZI  PointType;
 
 extern const string pointCloudTopic = "/ns1/velodyne_points";
 extern const string imuTopic = "/imu/imu";
+extern const string gpsTopic = "/vehicle/gps/fix";
 
 // Save pcd
 extern const string fileDirectory = "/tmp/";
