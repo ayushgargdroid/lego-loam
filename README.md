@@ -20,6 +20,7 @@ This repository contains code for a lightweight and ground optimized lidar odome
   cmake ..
   sudo make install
   ```
+- [GeographicLib](https://sourceforge.net/projects/geographiclib/files/distrib/) (ver 1.50.1) Please follow instructions [here](https://geographiclib.sourceforge.io/html/install.html) to install the package after [downloading](https://sourceforge.net/projects/geographiclib/files/distrib/) it.
 
 ## Compile
 
