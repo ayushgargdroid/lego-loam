@@ -48,6 +48,10 @@
 
 #include <nav_msgs/Path.h>
 #include <sensor_msgs/NavSatFix.h>
+#include <geometry_msgs/PoseWithCovarianceStamped.h>
+#include <geometry_msgs/PoseWithCovariance.h>
+
+#include <iostream>
 
 using namespace gtsam;
 
@@ -70,6 +74,7 @@ private:
     ros::Publisher pubLaserCloudSurround;
     ros::Publisher pubOdomAftMapped;
     ros::Publisher pubKeyPoses;
+    ros::Publisher pubPoseCov;
 
     ros::Publisher pubHistoryKeyFrames;
     ros::Publisher pubIcpKeyFrames;
@@ -245,6 +250,7 @@ public:
         pubLaserCloudSurround = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_surround", 2);
         pubOdomAftMapped = nh.advertise<nav_msgs::Odometry> ("/aft_mapped_to_init", 5);
         pubGpsPath = nh.advertise<nav_msgs::Path> ("/vehicle/path",2);
+        pubPoseCov = nh.advertise<geometry_msgs::PoseWithCovarianceStamped> ("/vehicle/pose_cov", 2);
 
         subLaserCloudCornerLast = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_corner_last", 2, &mapOptimization::laserCloudCornerLastHandler, this);
         subLaserCloudSurfLast = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_surf_last", 2, &mapOptimization::laserCloudSurfLastHandler, this);
@@ -682,9 +688,6 @@ public:
 
         gps_x -= start_x;
         gps_y -= start_y;
-
-
-        ROS_INFO("Got something %f %f",gps_x,gps_y);
     }
 
     void publishTF(){
@@ -736,8 +739,20 @@ public:
             pubKeyPoses.publish(cloudMsgTemp);
         }
 
-        if(pubGpsPath.getNumSubscribers() != 0)
-        {
+        if(pubPoseCov.getNumSubscribers() != 0){
+            geometry_msgs::PoseWithCovarianceStamped poseMsg;
+            poseMsg.header.stamp = ros::Time().fromSec(timeLaserOdometry);
+            poseMsg.header.frame_id = "/camera_init";
+            poseMsg.pose.pose.position.x = isamCurrentEstimate.at<Pose3>(cloudKeyPoses3D->points.size()-1).translation().y();
+            poseMsg.pose.pose.position.y = isamCurrentEstimate.at<Pose3>(cloudKeyPoses3D->points.size()-1).translation().z();
+            poseMsg.pose.pose.position.z = isamCurrentEstimate.at<Pose3>(cloudKeyPoses3D->points.size()-1).translation().x();
+            for(int i=0;i<36;i++)
+                poseMsg.pose.covariance[i] = *(isam->marginalCovariance(cloudKeyPoses3D->points.size()-1).data()+i);
+            // poseMsg.pose.covariance = isam->marginalCovariance(cloudKeyPoses3D->points.size()-1).array();
+            pubPoseCov.publish(poseMsg);
+        }
+
+        if(pubGpsPath.getNumSubscribers() != 0){
             float theta = -20/180.0*3.14;
 
             geometry_msgs::PoseStamped pose;
@@ -1449,8 +1464,14 @@ public:
         /**
          * update iSAM
          */
-        isam->update(gtSAMgraph, initialEstimate);
+        ISAM2Result t = isam->update(gtSAMgraph, initialEstimate);
         isam->update();
+        // if(cloudKeyPoses3D->points.size()-1 >= 100 && !cloudKeyPoses3D->points.empty())
+        // {
+        //     std::cout<<"Cov for key 100"<<std::endl;
+        //     std::cout<<isam->marginalCovariance(100)<<std::endl;
+        // }
+
         
         gtSAMgraph.resize(0);
         initialEstimate.clear();
