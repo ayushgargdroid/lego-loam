@@ -9,6 +9,7 @@
     <!--- TF -->
     <node pkg="tf" type="static_transform_publisher" name="camera_init_to_map"  args="0 0 0 1.570795   0        1.570795 /map    /camera_init 10" />
     <node pkg="tf" type="static_transform_publisher" name="base_link_to_camera" args="0 0 0 -1.570795 -1.570795 0        /camera /base_link   10" />
+    <node pkg="tf" type="static_transform_publisher" name="base_link_to_car_camera" args="1.5 0.66 1.25 -1.570795 0 -1.570795    /base_link /cam_0_optical_frame   10" />
 
     <!--- LeGO-LOAM -->    
     <node pkg="lego_loam" type="imageProjection"    name="imageProjection"    output="screen"/>
