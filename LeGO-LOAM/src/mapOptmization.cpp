@@ -32,7 +32,6 @@
 //   T. Shan and B. Englot. LeGO-LOAM: Lightweight and Ground-Optimized Lidar Odometry and Mapping on Variable Terrain
 //      IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS). October 2018.
 #include "utility.h"
-#include <iostream>
 #include <gtsam/geometry/Rot3.h>
 #include <gtsam/geometry/Pose3.h>
 #include <gtsam/slam/PriorFactor.h>
@@ -51,7 +50,10 @@
 #include <geometry_msgs/PoseWithCovarianceStamped.h>
 #include <geometry_msgs/PoseWithCovariance.h>
 
+#include <std_srvs/Empty.h>
+
 #include <iostream>
+#include <fstream>
 
 using namespace gtsam;
 
@@ -81,6 +83,7 @@ private:
     ros::Publisher pubRecentKeyFrames;
     ros::Publisher pubRegisteredCloud;
     ros::Publisher pubGpsPath;
+    ros::Publisher pubLoamPath;
 
     ros::Subscriber subLaserCloudCornerLast;
     ros::Subscriber subLaserCloudSurfLast;
@@ -88,6 +91,8 @@ private:
     ros::Subscriber subLaserOdometry;
     ros::Subscriber subImu;
     ros::Subscriber subGps;
+
+    ros::ServiceServer serveLoamTrajLog;
 
     nav_msgs::Odometry odomAftMapped;
     nav_msgs::Path pathMsg;
@@ -233,10 +238,11 @@ private:
     float ctRoll, stRoll, ctPitch, stPitch, ctYaw, stYaw, tInX, tInY, tInZ;
 
     double start_x, start_y, gps_x, gps_y;
+    int zone;
+    bool northp;
 
 public:
 
-    
 
     mapOptimization():
         nh("~")
@@ -250,6 +256,7 @@ public:
         pubLaserCloudSurround = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_surround", 2);
         pubOdomAftMapped = nh.advertise<nav_msgs::Odometry> ("/aft_mapped_to_init", 5);
         pubGpsPath = nh.advertise<nav_msgs::Path> ("/vehicle/path",2);
+        pubLoamPath = nh.advertise<sensor_msgs::NavSatFix> ("/vehicle/loam_path",2);
         pubPoseCov = nh.advertise<geometry_msgs::PoseWithCovarianceStamped> ("/vehicle/pose_cov", 2);
 
         subLaserCloudCornerLast = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_corner_last", 2, &mapOptimization::laserCloudCornerLastHandler, this);
@@ -263,6 +270,8 @@ public:
         pubIcpKeyFrames = nh.advertise<sensor_msgs::PointCloud2>("/corrected_cloud", 2);
         pubRecentKeyFrames = nh.advertise<sensor_msgs::PointCloud2>("/recent_cloud", 2);
         pubRegisteredCloud = nh.advertise<sensor_msgs::PointCloud2>("/registered_cloud", 2);
+
+        serveLoamTrajLog = nh.advertiseService("/vehicle/log_lego_traj", &mapOptimization::logData, this);
 
         downSizeFilterCorner.setLeafSize(0.2, 0.2, 0.2);
         downSizeFilterSurf.setLeafSize(0.4, 0.4, 0.4);
@@ -674,10 +683,7 @@ public:
         imuPitch[imuPointerLast] = pitch;
     }
 
-    void gpsHandler(const sensor_msgs::NavSatFix::ConstPtr& gpsMsg)
-    {
-        int zone;
-        bool northp;
+    void gpsHandler(const sensor_msgs::NavSatFix::ConstPtr& gpsMsg){
         GeographicLib::UTMUPS::Forward(gpsMsg->latitude,gpsMsg->longitude,zone,northp,gps_y,gps_x);
 
         if(start_x == 0.0)
@@ -688,6 +694,26 @@ public:
 
         gps_x -= start_x;
         gps_y -= start_y;
+    }
+
+    bool logData(std_srvs::Empty::Request &req, std_srvs::Empty::Response &res){
+        float theta = -20/180.0*3.14;
+        double lat,lon;
+
+        std::ofstream csvFile;
+        csvFile.open("/home/ayush/slam/slam_ws/gps_loam.csv");
+        csvFile << "count,latitude,longitude\n";
+
+        for(int i = 0; i < cloudKeyPoses3D->points.size(); i++)
+        {
+            double x = cos(theta)*cloudKeyPoses3D->points[i].z + sin(theta)*cloudKeyPoses3D->points[i].x;
+            double y = sin(theta)*cloudKeyPoses3D->points[i].z - cos(theta)*cloudKeyPoses3D->points[i].x;
+            GeographicLib::UTMUPS::Reverse(zone, northp, start_y + y, start_x + x, lat, lon);
+            csvFile<< std::to_string(i) + "," + std::to_string(lat) + "," + std::to_string(lon) + "\n";
+        }
+        csvFile.close();
+        ROS_INFO("Written to CSV");
+        return true;
     }
 
     void publishTF(){
@@ -1624,6 +1650,5 @@ int main(int argc, char** argv)
 
     loopthread.join();
     visualizeMapThread.join();
-
     return 0;
 }
