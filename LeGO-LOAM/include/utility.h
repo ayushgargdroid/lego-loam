@@ -102,7 +102,7 @@ extern const int groundScanInd = 7;
 // extern const float ang_bottom = 16.6+0.1;
 // extern const int groundScanInd = 15;
 
-extern const bool loopClosureEnableFlag = true;
+extern const bool loopClosureEnableFlag = false;
 extern const double mappingProcessInterval = 0.3;
 
 extern const float scanPeriod = 0.1;
@@ -124,6 +124,8 @@ extern const int sectionsTotal = 6;
 extern const float edgeThreshold = 0.1;
 extern const float surfThreshold = 0.1;
 extern const float nearestFeatureSearchSqDist = 25;
+
+extern const float theta = -20/180.0*3.14;
 
 
 // Mapping Params
@@ -178,6 +180,10 @@ struct PointXYZIRPYT
     double time;
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 } EIGEN_ALIGN16;
+
+struct GpsCoord{
+    int x,y;
+};
 
 POINT_CLOUD_REGISTER_POINT_STRUCT (PointXYZIRPYT,
                                    (float, x, x) (float, y, y)

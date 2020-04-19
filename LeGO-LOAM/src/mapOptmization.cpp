@@ -32,6 +32,7 @@
 //   T. Shan and B. Englot. LeGO-LOAM: Lightweight and Ground-Optimized Lidar Odometry and Mapping on Variable Terrain
 //      IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS). October 2018.
 #include "utility.h"
+#include "GPSPose3Factor.h"
 #include <gtsam/geometry/Rot3.h>
 #include <gtsam/geometry/Pose3.h>
 #include <gtsam/slam/PriorFactor.h>
@@ -54,6 +55,7 @@
 
 #include <iostream>
 #include <fstream>
+#include <unordered_map>
 
 using namespace gtsam;
 
@@ -70,6 +72,7 @@ private:
     noiseModel::Diagonal::shared_ptr priorNoise;
     noiseModel::Diagonal::shared_ptr odometryNoise;
     noiseModel::Diagonal::shared_ptr constraintNoise;
+    noiseModel::Diagonal::shared_ptr gpsNoise;
 
     ros::NodeHandle nh;
 
@@ -240,6 +243,9 @@ private:
     double start_x, start_y, gps_x, gps_y;
     int zone;
     bool northp;
+    unordered_map<int, PointTypePose> loamPoints;
+    int gpsTime, prevGpsTime;
+    int startLoamTime;
 
 public:
 
@@ -262,9 +268,9 @@ public:
         subLaserCloudCornerLast = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_corner_last", 2, &mapOptimization::laserCloudCornerLastHandler, this);
         subLaserCloudSurfLast = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_surf_last", 2, &mapOptimization::laserCloudSurfLastHandler, this);
         subOutlierCloudLast = nh.subscribe<sensor_msgs::PointCloud2>("/outlier_cloud_last", 2, &mapOptimization::laserCloudOutlierLastHandler, this);
-        subLaserOdometry = nh.subscribe<nav_msgs::Odometry>("/laser_odom_to_init", 5, &mapOptimization::laserOdometryHandler, this);
+        subLaserOdometry = nh.subscribe<nav_msgs::Odometry>("/laser_odom_to_init", 1, &mapOptimization::laserOdometryHandler, this);
         subImu = nh.subscribe<sensor_msgs::Imu> (imuTopic, 50, &mapOptimization::imuHandler, this);
-        subGps = nh.subscribe<sensor_msgs::NavSatFix> (gpsTopic, 2, &mapOptimization::gpsHandler, this);
+        subGps = nh.subscribe<sensor_msgs::NavSatFix> (gpsTopic, 1, &mapOptimization::gpsHandler, this);
 
         pubHistoryKeyFrames = nh.advertise<sensor_msgs::PointCloud2>("/history_cloud", 2);
         pubIcpKeyFrames = nh.advertise<sensor_msgs::PointCloud2>("/corrected_cloud", 2);
@@ -346,6 +352,7 @@ public:
         timeLastGloalMapPublish = 0;
 
         timeLastProcessing = -1;
+        startLoamTime = -1;
 
         newLaserCloudCornerLast = false;
         newLaserCloudSurfLast = false;
@@ -375,6 +382,9 @@ public:
         Vector6 << 1e-6, 1e-6, 1e-6, 1e-8, 1e-8, 1e-6;
         priorNoise = noiseModel::Diagonal::Variances(Vector6);
         odometryNoise = noiseModel::Diagonal::Variances(Vector6);
+
+        Vector6 << 1.0, 1.0, 0.0, 0.0, 0.0, 0.0;
+        gpsNoise = noiseModel::Diagonal::Sigmas(Vector6);
 
         matA0 = cv::Mat (5, 3, CV_32F, cv::Scalar::all(0));
         matB0 = cv::Mat (5, 1, CV_32F, cv::Scalar::all(-1));
@@ -660,6 +670,8 @@ public:
 
     void laserOdometryHandler(const nav_msgs::Odometry::ConstPtr& laserOdometry){
         timeLaserOdometry = laserOdometry->header.stamp.toSec();
+        if(startLoamTime == -1) 
+            startLoamTime = timeLaserOdometry;
         double roll, pitch, yaw;
         geometry_msgs::Quaternion geoQuat = laserOdometry->pose.pose.orientation;
         tf::Matrix3x3(tf::Quaternion(geoQuat.z, -geoQuat.x, -geoQuat.y, geoQuat.w)).getRPY(roll, pitch, yaw);
@@ -670,6 +682,7 @@ public:
         transformSum[4] = laserOdometry->pose.pose.position.y;
         transformSum[5] = laserOdometry->pose.pose.position.z;
         newLaserOdometry = true;
+        ROS_INFO("Laser time %f",timeLaserOdometry);
     }
 
     void imuHandler(const sensor_msgs::Imu::ConstPtr& imuIn){
@@ -692,12 +705,13 @@ public:
             start_y = gps_y;
         }
 
-        gps_x -= start_x;
-        gps_y -= start_y;
+        gps_x -= start_x; gps_y -= start_y;
+
+        gpsTime = gpsMsg->header.stamp.toSec();
+        ROS_INFO("Got gps");
     }
 
     bool logData(std_srvs::Empty::Request &req, std_srvs::Empty::Response &res){
-        float theta = -20/180.0*3.14;
         double lat,lon;
 
         std::ofstream csvFile;
@@ -778,9 +792,7 @@ public:
             pubPoseCov.publish(poseMsg);
         }
 
-        if(pubGpsPath.getNumSubscribers() != 0){
-            float theta = -20/180.0*3.14;
-
+        if(pubGpsPath.getNumSubscribers() != 0){  
             geometry_msgs::PoseStamped pose;
             pathMsg.header.stamp = pose.header.stamp = ros::Time().fromSec(timeLaserOdometry);
             pathMsg.header.frame_id = pose.header.frame_id = "/map";
@@ -1466,27 +1478,59 @@ public:
         if (saveThisKeyFrame == false && !cloudKeyPoses3D->points.empty())
         	return;
 
+        auto it1 = loamPoints.find(gpsTime-1);
+        // auto it2 = loamPoints.find(gpsTime);
+
+        ROS_INFO("curr: %d prev: %d",gpsTime,gpsTime-1);
+
+        for(auto it:loamPoints){
+            ROS_INFO("stamp: %d",it.first);
+        }
+        
         previousRobotPosPoint = currentRobotPosPoint;
         /**
-         * update grsam graph
+         * update gtsam graph
          */
-        if (cloudKeyPoses3D->points.empty()){
-            gtSAMgraph.add(PriorFactor<Pose3>(0, Pose3(Rot3::RzRyRx(transformTobeMapped[2], transformTobeMapped[0], transformTobeMapped[1]),
-                                                       		 Point3(transformTobeMapped[5], transformTobeMapped[3], transformTobeMapped[4])), priorNoise));
-            initialEstimate.insert(0, Pose3(Rot3::RzRyRx(transformTobeMapped[2], transformTobeMapped[0], transformTobeMapped[1]),
-                                                  Point3(transformTobeMapped[5], transformTobeMapped[3], transformTobeMapped[4])));
-            for (int i = 0; i < 6; ++i)
-            	transformLast[i] = transformTobeMapped[i];
+        if(prevGpsTime != gpsTime){
+            if (start_x != 0 && cloudKeyPoses3D->points.empty()){
+                PointTypePose thisPose6D;
+                ROS_WARN("INIT");
+                gtSAMgraph.add(PriorFactor<Pose3>(gpsTime, Pose3(Rot3::RzRyRx(transformTobeMapped[2], transformTobeMapped[0], transformTobeMapped[1]),
+                                                                Point3(transformTobeMapped[5], transformTobeMapped[3], transformTobeMapped[4])), priorNoise));
+                ROS_WARN("INIT2");
+                initialEstimate.insert(gpsTime, Pose3(Rot3::RzRyRx(transformTobeMapped[2], transformTobeMapped[0], transformTobeMapped[1]),
+                                                    Point3(transformTobeMapped[5], transformTobeMapped[3], transformTobeMapped[4])));
+                ROS_WARN("INIT3");
+                for (int i = 0; i < 6; ++i)
+                    transformLast[i] = transformTobeMapped[i];
+
+
+                thisPose6D.roll = 0.0;
+                thisPose6D.pitch = 0.0;
+                thisPose6D.yaw = 0.0;
+                thisPose6D.x = 0.0;
+                thisPose6D.y = 0.0;
+                thisPose6D.z = 0.0;
+
+                loamPoints[gpsTime-1] = thisPose6D;
+            }
+            else if(it1 == loamPoints.end()){
+                ROS_INFO("Match not found");
+            }
+            else {
+                ROS_INFO("Match found");
+                PointTypePose lastPose6D = it1->second;
+                gtsam::Pose3 poseFrom = Pose3(Rot3::RzRyRx(lastPose6D.roll, lastPose6D.pitch, lastPose6D.yaw),
+                                                    Point3(lastPose6D.x, lastPose6D.y, lastPose6D.z));
+                gtsam::Pose3 poseTo   = Pose3(Rot3::RzRyRx(transformAftMapped[2], transformAftMapped[0], transformAftMapped[1]),
+                                                    Point3(transformAftMapped[5], transformAftMapped[3], transformAftMapped[4]));
+                gtSAMgraph.add(BetweenFactor<Pose3>(gpsTime-1, gpsTime, poseFrom.between(poseTo), odometryNoise));
+                initialEstimate.insert(cloudKeyPoses3D->points.size(), Pose3(Rot3::RzRyRx(transformAftMapped[2], transformAftMapped[0], transformAftMapped[1]),
+                                                                                Point3(transformAftMapped[5], transformAftMapped[3], transformAftMapped[4])));
+            }
         }
-        else{
-            gtsam::Pose3 poseFrom = Pose3(Rot3::RzRyRx(transformLast[2], transformLast[0], transformLast[1]),
-                                                Point3(transformLast[5], transformLast[3], transformLast[4]));
-            gtsam::Pose3 poseTo   = Pose3(Rot3::RzRyRx(transformAftMapped[2], transformAftMapped[0], transformAftMapped[1]),
-                                                Point3(transformAftMapped[5], transformAftMapped[3], transformAftMapped[4]));
-            gtSAMgraph.add(BetweenFactor<Pose3>(cloudKeyPoses3D->points.size()-1, cloudKeyPoses3D->points.size(), poseFrom.between(poseTo), odometryNoise));
-            initialEstimate.insert(cloudKeyPoses3D->points.size(), Pose3(Rot3::RzRyRx(transformAftMapped[2], transformAftMapped[0], transformAftMapped[1]),
-                                                                     		   Point3(transformAftMapped[5], transformAftMapped[3], transformAftMapped[4])));
-        }
+
+
         /**
          * update iSAM
          */
@@ -1509,8 +1553,8 @@ public:
         PointTypePose thisPose6D;
         Pose3 latestEstimate;
 
-        isamCurrentEstimate = isam->calculateEstimate();
-        latestEstimate = isamCurrentEstimate.at<Pose3>(isamCurrentEstimate.size()-1);
+        latestEstimate = isam->calculateEstimate<Pose3>(gpsTime);
+        // latestEstimate = isamCurrentEstimate.at<Pose3>(gpsTime);
 
         thisPose3D.x = latestEstimate.translation().y();
         thisPose3D.y = latestEstimate.translation().z();
@@ -1530,13 +1574,22 @@ public:
         /**
          * save updated transform
          */
-        if (cloudKeyPoses3D->points.size() > 1){
+        if (cloudKeyPoses3D->points.size() >= 1){
             transformAftMapped[0] = latestEstimate.rotation().pitch();
             transformAftMapped[1] = latestEstimate.rotation().yaw();
             transformAftMapped[2] = latestEstimate.rotation().roll();
             transformAftMapped[3] = latestEstimate.translation().y();
             transformAftMapped[4] = latestEstimate.translation().z();
             transformAftMapped[5] = latestEstimate.translation().x();
+
+            thisPose6D.roll = latestEstimate.rotation().roll();
+            thisPose6D.pitch = latestEstimate.rotation().pitch();
+            thisPose6D.yaw = latestEstimate.rotation().yaw();
+            thisPose6D.x = latestEstimate.translation().x();
+            thisPose6D.y = latestEstimate.translation().y();
+            thisPose6D.z = latestEstimate.translation().z();
+
+            loamPoints[int(gpsTime)] = thisPose6D;
 
             for (int i = 0; i < 6; ++i){
             	transformLast[i] = transformAftMapped[i];
@@ -1555,6 +1608,8 @@ public:
         cornerCloudKeyFrames.push_back(thisCornerKeyFrame);
         surfCloudKeyFrames.push_back(thisSurfKeyFrame);
         outlierCloudKeyFrames.push_back(thisOutlierKeyFrame);
+
+        prevGpsTime = gpsTime;
     }
 
     void correctPoses(){
@@ -1593,7 +1648,7 @@ public:
         if (newLaserCloudCornerLast  && std::abs(timeLaserCloudCornerLast  - timeLaserOdometry) < 0.005 &&
             newLaserCloudSurfLast    && std::abs(timeLaserCloudSurfLast    - timeLaserOdometry) < 0.005 &&
             newLaserCloudOutlierLast && std::abs(timeLaserCloudOutlierLast - timeLaserOdometry) < 0.005 &&
-            newLaserOdometry)
+            newLaserOdometry && start_x != 0.0)
         {
 
             newLaserCloudCornerLast = false; newLaserCloudSurfLast = false; newLaserCloudOutlierLast = false; newLaserOdometry = false;
