@@ -32,6 +32,7 @@
 //   T. Shan and B. Englot. LeGO-LOAM: Lightweight and Ground-Optimized Lidar Odometry and Mapping on Variable Terrain
 //      IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS). October 2018.
 #include "utility.h"
+#include "GPSPose3Factor.h"
 #include <gtsam/geometry/Rot3.h>
 #include <gtsam/geometry/Pose3.h>
 #include <gtsam/slam/PriorFactor.h>
@@ -54,6 +55,7 @@
 
 #include <iostream>
 #include <fstream>
+#include <unordered_map>
 
 using namespace gtsam;
 
@@ -70,6 +72,7 @@ private:
     noiseModel::Diagonal::shared_ptr priorNoise;
     noiseModel::Diagonal::shared_ptr odometryNoise;
     noiseModel::Diagonal::shared_ptr constraintNoise;
+    noiseModel::Diagonal::shared_ptr gpsNoise;
 
     ros::NodeHandle nh;
 
@@ -240,6 +243,7 @@ private:
     double start_x, start_y, gps_x, gps_y;
     int zone;
     bool northp;
+    std::unordered_map<int,std::vector<int>> loamTimestamp;
 
 public:
 
@@ -375,6 +379,9 @@ public:
         Vector6 << 1e-6, 1e-6, 1e-6, 1e-8, 1e-8, 1e-6;
         priorNoise = noiseModel::Diagonal::Variances(Vector6);
         odometryNoise = noiseModel::Diagonal::Variances(Vector6);
+
+        Vector6 <<  1.0,1.0,0.0,0.0,0.0,0.0;
+        gpsNoise = noiseModel::Diagonal::Sigmas(Vector6);
 
         matA0 = cv::Mat (5, 3, CV_32F, cv::Scalar::all(0));
         matB0 = cv::Mat (5, 1, CV_32F, cv::Scalar::all(-1));
@@ -769,12 +776,11 @@ public:
             geometry_msgs::PoseWithCovarianceStamped poseMsg;
             poseMsg.header.stamp = ros::Time().fromSec(timeLaserOdometry);
             poseMsg.header.frame_id = "/camera_init";
-            poseMsg.pose.pose.position.x = isamCurrentEstimate.at<Pose3>(cloudKeyPoses3D->points.size()-1).translation().y();
-            poseMsg.pose.pose.position.y = isamCurrentEstimate.at<Pose3>(cloudKeyPoses3D->points.size()-1).translation().z();
-            poseMsg.pose.pose.position.z = isamCurrentEstimate.at<Pose3>(cloudKeyPoses3D->points.size()-1).translation().x();
+            poseMsg.pose.pose.position.x = isamCurrentEstimate.at<Pose3>(timeLaserOdometry).translation().y();
+            poseMsg.pose.pose.position.y = isamCurrentEstimate.at<Pose3>(timeLaserOdometry).translation().z();
+            poseMsg.pose.pose.position.z = isamCurrentEstimate.at<Pose3>(timeLaserOdometry).translation().x();
             for(int i=0;i<36;i++)
-                poseMsg.pose.covariance[i] = *(isam->marginalCovariance(cloudKeyPoses3D->points.size()-1).data()+i);
-            // poseMsg.pose.covariance = isam->marginalCovariance(cloudKeyPoses3D->points.size()-1).array();
+                poseMsg.pose.covariance[i] = *(isam->marginalCovariance(timeLaserOdometry).data()+i);
             pubPoseCov.publish(poseMsg);
         }
 
@@ -978,7 +984,7 @@ public:
             if (potentialLoopFlag == false)
                 return;
         }
-        ROS_INFO("Potential Loop Closure");
+        ROS_DEBUG("Potential Loop Closure");
         // reset the flag first no matter icp successes or not
         potentialLoopFlag = false;
         // ICP Settings
@@ -995,7 +1001,7 @@ public:
         icp.align(*unused_result);
 
         if (icp.hasConverged() == false || icp.getFitnessScore() > historyKeyframeFitnessScore){
-            ROS_INFO("ICP Couldn't converge");
+            ROS_DEBUG("ICP Couldn't converge");
             return;
         }
 
@@ -1033,7 +1039,8 @@ public:
         	add constraints
         	*/
         std::lock_guard<std::mutex> lock(mtx);
-        gtSAMgraph.add(BetweenFactor<Pose3>(latestFrameIDLoopCloure, closestHistoryFrameID, poseFrom.between(poseTo), constraintNoise));
+        ROS_DEBUG("Latest: %f Closest: %f", cloudKeyPoses6D->points[latestFrameIDLoopCloure].time, cloudKeyPoses6D->points[closestHistoryFrameID].time);
+        gtSAMgraph.add(BetweenFactor<Pose3>(cloudKeyPoses6D->points[latestFrameIDLoopCloure].time*1000000, cloudKeyPoses6D->points[closestHistoryFrameID].time*1000000, poseFrom.between(poseTo), constraintNoise));
         isam->update(gtSAMgraph);
         isam->update();
         gtSAMgraph.resize(0);
@@ -1471,20 +1478,21 @@ public:
          * update grsam graph
          */
         if (cloudKeyPoses3D->points.empty()){
-            gtSAMgraph.add(PriorFactor<Pose3>(0, Pose3(Rot3::RzRyRx(transformTobeMapped[2], transformTobeMapped[0], transformTobeMapped[1]),
+            gtSAMgraph.add(PriorFactor<Pose3>(timeLaserOdometry*1000000, Pose3(Rot3::RzRyRx(transformTobeMapped[2], transformTobeMapped[0], transformTobeMapped[1]),
                                                        		 Point3(transformTobeMapped[5], transformTobeMapped[3], transformTobeMapped[4])), priorNoise));
-            initialEstimate.insert(0, Pose3(Rot3::RzRyRx(transformTobeMapped[2], transformTobeMapped[0], transformTobeMapped[1]),
+            initialEstimate.insert(timeLaserOdometry*1000000, Pose3(Rot3::RzRyRx(transformTobeMapped[2], transformTobeMapped[0], transformTobeMapped[1]),
                                                   Point3(transformTobeMapped[5], transformTobeMapped[3], transformTobeMapped[4])));
             for (int i = 0; i < 6; ++i)
             	transformLast[i] = transformTobeMapped[i];
         }
         else{
+            int id = cloudKeyPoses3D->points.size();
             gtsam::Pose3 poseFrom = Pose3(Rot3::RzRyRx(transformLast[2], transformLast[0], transformLast[1]),
                                                 Point3(transformLast[5], transformLast[3], transformLast[4]));
             gtsam::Pose3 poseTo   = Pose3(Rot3::RzRyRx(transformAftMapped[2], transformAftMapped[0], transformAftMapped[1]),
                                                 Point3(transformAftMapped[5], transformAftMapped[3], transformAftMapped[4]));
-            gtSAMgraph.add(BetweenFactor<Pose3>(cloudKeyPoses3D->points.size()-1, cloudKeyPoses3D->points.size(), poseFrom.between(poseTo), odometryNoise));
-            initialEstimate.insert(cloudKeyPoses3D->points.size(), Pose3(Rot3::RzRyRx(transformAftMapped[2], transformAftMapped[0], transformAftMapped[1]),
+            gtSAMgraph.add(BetweenFactor<Pose3>(cloudKeyPoses6D->points[id-1].time*1000000, timeLaserOdometry*1000000, poseFrom.between(poseTo), odometryNoise));
+            initialEstimate.insert(timeLaserOdometry*1000000, Pose3(Rot3::RzRyRx(transformAftMapped[2], transformAftMapped[0], transformAftMapped[1]),
                                                                      		   Point3(transformAftMapped[5], transformAftMapped[3], transformAftMapped[4])));
         }
         /**
@@ -1510,7 +1518,7 @@ public:
         Pose3 latestEstimate;
 
         isamCurrentEstimate = isam->calculateEstimate();
-        latestEstimate = isamCurrentEstimate.at<Pose3>(isamCurrentEstimate.size()-1);
+        latestEstimate = isamCurrentEstimate.at<Pose3>(timeLaserOdometry*1000000);
 
         thisPose3D.x = latestEstimate.translation().y();
         thisPose3D.y = latestEstimate.translation().z();
@@ -1562,19 +1570,22 @@ public:
             recentCornerCloudKeyFrames. clear();
             recentSurfCloudKeyFrames.   clear();
             recentOutlierCloudKeyFrames.clear();
-            // update key poses
-                int numPoses = isamCurrentEstimate.size();
-            for (int i = 0; i < numPoses; ++i){
-            cloudKeyPoses3D->points[i].x = isamCurrentEstimate.at<Pose3>(i).translation().y();
-            cloudKeyPoses3D->points[i].y = isamCurrentEstimate.at<Pose3>(i).translation().z();
-            cloudKeyPoses3D->points[i].z = isamCurrentEstimate.at<Pose3>(i).translation().x();
 
-            cloudKeyPoses6D->points[i].x = cloudKeyPoses3D->points[i].x;
-            cloudKeyPoses6D->points[i].y = cloudKeyPoses3D->points[i].y;
-            cloudKeyPoses6D->points[i].z = cloudKeyPoses3D->points[i].z;
-            cloudKeyPoses6D->points[i].roll  = isamCurrentEstimate.at<Pose3>(i).rotation().pitch();
-            cloudKeyPoses6D->points[i].pitch = isamCurrentEstimate.at<Pose3>(i).rotation().yaw();
-            cloudKeyPoses6D->points[i].yaw   = isamCurrentEstimate.at<Pose3>(i).rotation().roll();
+            // update key poses
+            int numPoses = isamCurrentEstimate.size();
+            gtsam::KeyVector keys = isamCurrentEstimate.keys();
+            ROS_DEBUG("Numposes: %d Values size: %lu", numPoses, keys.size());
+            for (int i = 0; i < numPoses; ++i){
+                cloudKeyPoses3D->points[i].x = isamCurrentEstimate.at<Pose3>(keys[i]).translation().y();
+                cloudKeyPoses3D->points[i].y = isamCurrentEstimate.at<Pose3>(keys[i]).translation().z();
+                cloudKeyPoses3D->points[i].z = isamCurrentEstimate.at<Pose3>(keys[i]).translation().x();
+
+                cloudKeyPoses6D->points[i].x = cloudKeyPoses3D->points[i].x;
+                cloudKeyPoses6D->points[i].y = cloudKeyPoses3D->points[i].y;
+                cloudKeyPoses6D->points[i].z = cloudKeyPoses3D->points[i].z;
+                cloudKeyPoses6D->points[i].roll  = isamCurrentEstimate.at<Pose3>(keys[i]).rotation().pitch();
+                cloudKeyPoses6D->points[i].pitch = isamCurrentEstimate.at<Pose3>(keys[i]).rotation().yaw();
+                cloudKeyPoses6D->points[i].yaw   = isamCurrentEstimate.at<Pose3>(keys[i]).rotation().roll();
             }
 
             aLoopIsClosed = false;
