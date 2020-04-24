@@ -245,6 +245,8 @@ private:
     bool northp;
     std::unordered_map<int,std::vector<int>> loamTimeStamp;
     std::unordered_map<double,double> loamTimeStampZ;
+    double last;
+    int gpsCount;
 
 public:
 
@@ -349,6 +351,7 @@ public:
         timeLaserOdometry = 0;
         timeLaserCloudOutlierLast = 0;
         timeLastGloalMapPublish = 0;
+        gpsCount = 0;
 
         timeLastProcessing = -1;
 
@@ -378,13 +381,13 @@ public:
 
         gtsam::Vector Vector6(6);
         // Earlier values were 1e-6, 1e-6, 1e-6, 1e-8, 1e-8, 1e-6
-        Vector6 << 1e-2, 1e-2, 1e-2, 1e-4, 1e-4, 1e-4;
+        Vector6 << 1e-6, 1e-6, 1e-6, 1e-8, 1e-8, 1e-6;
         priorNoise = noiseModel::Diagonal::Variances(Vector6);
         odometryNoise = noiseModel::Diagonal::Variances(Vector6);
 
         // With earlier values 1e-2, 1e-2, 1e-2 worked
         gtsam::Vector Vector3(3);
-        Vector3 << 1e+1, 1e+1, 1e+1;
+        Vector3 << 1e-2, 1e-2, 1e-2;
         gpsNoise = noiseModel::Diagonal::Variances(Vector3);
 
         matA0 = cv::Mat (5, 3, CV_32F, cv::Scalar::all(0));
@@ -696,7 +699,8 @@ public:
 
     void gpsHandler(const sensor_msgs::NavSatFix::ConstPtr& gpsMsg){
         GeographicLib::UTMUPS::Forward(gpsMsg->latitude,gpsMsg->longitude,zone,northp,gps_y,gps_x);
-        float theta = -20/180.0*3.14;
+
+        gpsCount++;
 
         if(start_x == 0.0)
         {
@@ -731,18 +735,16 @@ public:
                 }
             }
             double finTimeStamp = sec*1000000.0 + it->second[i];
-            t_z = loamTimeStampZ[finTimeStamp];
-            ROS_INFO("final timestamp: %f GPS: %f t_x: %f t_y: %f t_z: %f", finTimeStamp, time, t_x, t_y, t_z);
             std::lock_guard<std::mutex> lock(mtx);
             gtSAMgraph.add(GPSPose3Factor(finTimeStamp, gtsam::Point3(t_x, t_y, 0.0), gpsNoise));
             isam->update(gtSAMgraph);
             isam->update();
+            aLoopIsClosed = true;
             gtSAMgraph.resize(0);
         }
     }
 
     bool logData(std_srvs::Empty::Request &req, std_srvs::Empty::Response &res){
-        float theta = -20/180.0*3.14;
         double lat,lon;
 
         std::ofstream csvFile;
@@ -810,21 +812,52 @@ public:
             pubKeyPoses.publish(cloudMsgTemp);
         }
 
-        if(pubPoseCov.getNumSubscribers() != 0){
+        if(pubPoseCov.getNumSubscribers() != 0 && isamCurrentEstimate.exists(last*1000000)){
             geometry_msgs::PoseWithCovarianceStamped poseMsg;
-            poseMsg.header.stamp = ros::Time().fromSec(timeLaserOdometry);
-            poseMsg.header.frame_id = "/camera_init";
-            poseMsg.pose.pose.position.x = isamCurrentEstimate.at<Pose3>(timeLaserOdometry).translation().y();
-            poseMsg.pose.pose.position.y = isamCurrentEstimate.at<Pose3>(timeLaserOdometry).translation().z();
-            poseMsg.pose.pose.position.z = isamCurrentEstimate.at<Pose3>(timeLaserOdometry).translation().x();
-            for(int i=0;i<36;i++)
-                poseMsg.pose.covariance[i] = *(isam->marginalCovariance(timeLaserOdometry).data()+i);
+            poseMsg.header.stamp = ros::Time().fromSec(last);
+            poseMsg.header.frame_id = "/map";
+            poseMsg.pose.pose.position.x = isamCurrentEstimate.at<Pose3>(last*1000000).translation().x();
+            poseMsg.pose.pose.position.y = isamCurrentEstimate.at<Pose3>(last*1000000).translation().y();
+            poseMsg.pose.pose.position.z = isamCurrentEstimate.at<Pose3>(last*1000000).translation().z();
+
+            gtsam::Quaternion q = isamCurrentEstimate.at<Pose3>(last*1000000).rotation().toQuaternion();
+            poseMsg.pose.pose.orientation.x = q.x();
+            poseMsg.pose.pose.orientation.y = q.y();
+            poseMsg.pose.pose.orientation.z = q.z();
+            poseMsg.pose.pose.orientation.w = q.w();
+
+            gtsam::Matrix m = isam->marginalCovariance(last*1000000);
+            gtsam::Matrix n_m(6,6);
+            for(int i = 3;i < 6; i++){
+                for(int j = 3; j < 6; j++){
+                    n_m(i-3,j-3) = m(i,j);
+                }
+            }
+            for(int i = 3;i < 6; i++){
+                for(int j = 0; j < 3; j++){
+                    n_m(i-3,j+3) = m(i,j);
+                }
+            }
+            for(int i = 0;i < 3; i++){
+                for(int j = 3; j < 6; j++){
+                    n_m(i+3,j-3) = m(i,j);
+                }
+            }
+            for(int i = 0;i < 3; i++){
+                for(int j = 0; j < 3; j++){
+                    n_m(i+3,j+3) = m(i,j);
+                }
+            }
+
+            for(int i=3;i<6;i++){
+                for(int j=0;j<6;j++){
+                    poseMsg.pose.covariance[i*6 + j] = n_m(i,j)*1e3;
+                }
+            }
             pubPoseCov.publish(poseMsg);
         }
 
         if(pubGpsPath.getNumSubscribers() != 0){
-            float theta = -20/180.0*3.14;
-
             geometry_msgs::PoseStamped pose;
             pathMsg.header.stamp = pose.header.stamp = ros::Time().fromSec(timeLaserOdometry);
             pathMsg.header.frame_id = pose.header.frame_id = "/map";
@@ -985,14 +1018,13 @@ public:
         }
         latestSurfKeyFrameCloud->clear();
         *latestSurfKeyFrameCloud = *hahaCloud;
-	   // save history near key frames
+        // save history near key frames
         for (int j = -historyKeyframeSearchNum; j <= historyKeyframeSearchNum; ++j){
             if (closestHistoryFrameID + j < 0 || closestHistoryFrameID + j > latestFrameIDLoopCloure)
                 continue;
             *nearHistorySurfKeyFrameCloud += *transformPointCloud(cornerCloudKeyFrames[closestHistoryFrameID+j], &cloudKeyPoses6D->points[closestHistoryFrameID+j]);
             *nearHistorySurfKeyFrameCloud += *transformPointCloud(surfCloudKeyFrames[closestHistoryFrameID+j],   &cloudKeyPoses6D->points[closestHistoryFrameID+j]);
         }
-
         downSizeFilterHistoryKeyFrames.setInputCloud(nearHistorySurfKeyFrameCloud);
         downSizeFilterHistoryKeyFrames.filter(*nearHistorySurfKeyFrameCloudDS);
         // publish history near key frames
@@ -1059,7 +1091,6 @@ public:
         float x, y, z, roll, pitch, yaw;
         Eigen::Affine3f correctionCameraFrame;
         correctionCameraFrame = icp.getFinalTransformation(); // get transformation in camera frame (because points are in camera frame)
-        std::cout<<correctionCameraFrame.matrix()<<std::endl;
         pcl::getTranslationAndEulerAngles(correctionCameraFrame, x, y, z, roll, pitch, yaw);
         Eigen::Affine3f correctionLidarFrame = pcl::getTransformation(z, x, y, yaw, roll, pitch);
         // transform from world origin to wrong pose
@@ -1077,7 +1108,6 @@ public:
         	add constraints
         	*/
         std::lock_guard<std::mutex> lock(mtx);
-        ROS_DEBUG("Latest: %f Closest: %f", cloudKeyPoses6D->points[latestFrameIDLoopCloure].time, cloudKeyPoses6D->points[closestHistoryFrameID].time);
         gtSAMgraph.add(BetweenFactor<Pose3>(cloudKeyPoses6D->points[latestFrameIDLoopCloure].time*1000000, cloudKeyPoses6D->points[closestHistoryFrameID].time*1000000, poseFrom.between(poseTo), constraintNoise));
         isam->update(gtSAMgraph);
         isam->update();
@@ -1532,17 +1562,13 @@ public:
             gtSAMgraph.add(BetweenFactor<Pose3>(cloudKeyPoses6D->points[id-1].time*1000000, timeLaserOdometry*1000000, poseFrom.between(poseTo), odometryNoise));
             initialEstimate.insert(timeLaserOdometry*1000000, Pose3(Rot3::RzRyRx(transformAftMapped[2], transformAftMapped[0], transformAftMapped[1]),
                                                                      		   Point3(transformAftMapped[5], transformAftMapped[3], transformAftMapped[4])));
+            last = timeLaserOdometry;
         }
         /**
          * update iSAM
          */
         ISAM2Result t = isam->update(gtSAMgraph, initialEstimate);
         isam->update();
-        // if(cloudKeyPoses3D->points.size()-1 >= 100 && !cloudKeyPoses3D->points.empty())
-        // {
-        //     std::cout<<"Cov for key 100"<<std::endl;
-        //     std::cout<<isam->marginalCovariance(100)<<std::endl;
-        // }
 
         
         gtSAMgraph.resize(0);

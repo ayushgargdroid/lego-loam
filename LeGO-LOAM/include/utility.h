@@ -51,7 +51,7 @@ using namespace std;
 typedef pcl::PointXYZI  PointType;
 
 extern const string pointCloudTopic = "/ns1/velodyne_points";
-extern const string imuTopic = "/imu/imu";
+extern const string imuTopic = "/imu_tf/imu";
 extern const string gpsTopic = "/vehicle/gps/fix";
 
 // Save pcd
@@ -125,6 +125,7 @@ extern const float edgeThreshold = 0.1;
 extern const float surfThreshold = 0.1;
 extern const float nearestFeatureSearchSqDist = 25;
 
+extern const float theta = -20/180.0*3.14;
 
 // Mapping Params
 extern const float surroundingKeyframeSearchRadius = 50.0; // key frame that is within n meters from current pose will be considerd for scan-to-map optimization (when loop closure disabled)
