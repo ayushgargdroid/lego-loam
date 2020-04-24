@@ -40,8 +40,16 @@ The easiest way to run this package is by using the provided docker image. **Nee
 	
     sudo apt-get install docker-ce
     ```
-  - Install **nvidia-docker2** plugin
+  - Install [**nvidia-docker2**](https://github.com/nvidia/nvidia-docker/wiki/Installation-(version-2.0)) plugin. Check the link for its dependencies.
     ```
+    curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
+
+    distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
+    curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-dockerlist | sudo tee /etc/apt/sources.list.d/nvidia-docker.list
+
+    curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
+
+    sudo apt-get update
     # purge older version of nvidia-docker
     sudo apt-get purge nvidia-docker
 
@@ -51,11 +59,12 @@ The easiest way to run this package is by using the provided docker image. **Nee
   ### Run container
   Terminal 1
   ```
+  git clone https://github.com/ayushgargdroid/lego-loam.git
   roscore
   ```
   Terminal 2
   ```
-  cd docker_files/
+  cd lego-loam/docker_files/
   ./run_script.bash
   ```
   Terminal 3 (Play the morning rosbag)
