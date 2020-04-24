@@ -22,6 +22,9 @@
   <build_depend>tf</build_depend>
   <run_depend>tf</run_depend>
 
+  <build_depend>imu_transformer</build_depend>
+  <run_depend>imu_transformer</run_depend>
+
   <build_depend>pcl_ros</build_depend>
   <run_depend>pcl_ros</run_depend>
   <build_depend>pcl_conversions</build_depend>
