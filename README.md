@@ -73,6 +73,8 @@ The easiest way to run this package is by using the provided docker image. **Nee
   ```
   Sit back and relax. Your welcome!
 
+  If you are having issues with **Docker permissions**, please follow this [link](https://www.digitalocean.com/community/questions/how-to-fix-docker-got-permission-denied-while-trying-to-connect-to-the-docker-daemon-socket).
+
 ## Dependency
 
 We assume you have ROS Melodic installed and the environment setup.
