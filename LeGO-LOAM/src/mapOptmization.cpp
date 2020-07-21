@@ -735,12 +735,12 @@ public:
                 }
             }
             double finTimeStamp = sec*1000000.0 + it->second[i];
-            std::lock_guard<std::mutex> lock(mtx);
-            gtSAMgraph.add(GPSPose3Factor(finTimeStamp, gtsam::Point3(t_x, t_y, 0.0), gpsNoise));
-            isam->update(gtSAMgraph);
-            isam->update();
-            aLoopIsClosed = true;
-            gtSAMgraph.resize(0);
+            // std::lock_guard<std::mutex> lock(mtx);
+            // gtSAMgraph.add(GPSPose3Factor(finTimeStamp, gtsam::Point3(t_x, t_y, loamTimeStampZ[finTimeStamp]), gpsNoise));
+            // isam->update(gtSAMgraph);
+            // isam->update();
+            // aLoopIsClosed = true;
+            // gtSAMgraph.resize(0);
         }
     }
 
@@ -1054,7 +1054,7 @@ public:
             if (potentialLoopFlag == false)
                 return;
         }
-        ROS_DEBUG("Potential Loop Closure");
+        ROS_INFO("Potential Loop Closure");
         // reset the flag first no matter icp successes or not
         potentialLoopFlag = false;
         // ICP Settings

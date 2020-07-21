@@ -13,11 +13,11 @@
     <node pkg="tf" type="static_transform_publisher" name="base_link_to_imu" args="1.35 0.0 1.25 0.0 0.0 -3.142    /base_link /imu   10" />
 
     <!--- Imu Transformer-->
-    <node pkg="imu_transformer" type="imu_transformer_node" name="imu_data_transformer" output="screen">
+    <!-- <node pkg="imu_transformer" type="imu_transformer_node" name="imu_data_transformer" output="screen">
         <remap from="imu_in" to="imu"/>
         <remap from="imu_out" to="imu_tf"/>
         <param name="target_frame" value="base_link"/>
-    </node>
+    </node> -->
 
     <!--- LeGO-LOAM -->    
     <node pkg="lego_loam" type="imageProjection"    name="imageProjection"    output="screen"/>
