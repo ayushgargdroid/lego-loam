@@ -5,9 +5,27 @@
 
     <!--- Run Rviz-->
     <node pkg="rviz" type="rviz" name="rviz" args="-d $(find lego_loam)/launch/test.rviz" />
+    <node pkg="ouster_ros" name="server_config" type="server_config.py" output="screen" />
+    <!-- <node pkg="tf" name="os_sensor_os_imu" type="static_transform_publisher" args="0.0 0.0 0.0 0.0 0.0 0.0 os_sensor os_imu 100" />
+    <node pkg="tf" name="os_sensor_os_lidar" type="static_transform_publisher" args="0.0 0.0 0.0 0.0 0.0 0.0 os_sensor os_lidar 100" />
+    <node pkg="tf" name="os_sensor_robot" type="static_transform_publisher" args="0.0 0.0 1.0 0.0 0.0 0.0 robot os_sensor 100" /> -->
+
+    <arg name="rosbag_file"         default="" />
+    <arg name="rosbag_loop_args" value="--clock --topics /odom /os_node/imu_packets /os_node/lidar_packets -r 0.2" />
+    <node name="rosbag_play"  type="play"    pkg="rosbag"
+        args="$(arg rosbag_file) --pause $(arg rosbag_loop_args)"/>
+
+    <arg name="tf_prefix" default="" doc="namespace for tf transforms"/>
+    <node pkg="ouster_ros" type="os_cloud_node" name="os_cloud_node" output="screen" required="true">
+        <remap from="~/os_config" to="/os_node/os_config"/>
+        <remap from="~/lidar_packets" to="/os_node/lidar_packets"/>
+        <remap from="~/imu_packets" to="/os_node/imu_packets"/>
+        <param name="~/tf_prefix" value="$(arg tf_prefix)"/>
+    </node>
 
     <!--- TF -->
     <node pkg="tf" type="static_transform_publisher" name="camera_init_to_map"  args="0 0 0 1.570795   0        1.570795 /map    /camera_init 10" />
+    <!-- <node pkg="tf" type="static_transform_publisher" name="base_link_to_map"  args="0 0 0 0 0 0 /map    /base_link 10" /> -->
     <node pkg="tf" type="static_transform_publisher" name="base_link_to_camera" args="0 0 0 -1.570795 -1.570795 0        /camera /base_link   10" />
     <node pkg="tf" type="static_transform_publisher" name="base_link_to_car_camera" args="1.5 0.66 1.25 -1.570795 0 -1.570795    /base_link /cam_0_optical_frame   10" />
     <node pkg="tf" type="static_transform_publisher" name="base_link_to_imu" args="1.35 0.0 1.25 0.0 0.0 -3.142    /base_link /imu   10" />

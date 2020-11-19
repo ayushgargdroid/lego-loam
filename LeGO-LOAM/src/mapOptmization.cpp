@@ -1477,11 +1477,11 @@ public:
             matX = matP * matX2;
         }
 
-        transformTobeMapped[0] += matX.at<float>(0, 0);
+        transformTobeMapped[0] += 0.0;
         transformTobeMapped[1] += matX.at<float>(1, 0);
-        transformTobeMapped[2] += matX.at<float>(2, 0);
+        transformTobeMapped[2] += 0.0;
         transformTobeMapped[3] += matX.at<float>(3, 0);
-        transformTobeMapped[4] += matX.at<float>(4, 0);
+        transformTobeMapped[4] += 0.0;
         transformTobeMapped[5] += matX.at<float>(5, 0);
 
         float deltaR = sqrt(

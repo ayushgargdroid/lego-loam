@@ -222,7 +222,8 @@ public:
 
         cloudSmoothness.resize(N_SCAN*Horizon_SCAN);
 
-        downSizeFilter.setLeafSize(0.2, 0.2, 0.2);
+        // Changes final map resolution
+        downSizeFilter.setLeafSize(0.05, 0.05, 0.05);
 
         segmentedCloud.reset(new pcl::PointCloud<PointType>());
         outlierCloud.reset(new pcl::PointCloud<PointType>());
@@ -1314,8 +1315,8 @@ public:
             matX = matP * matX2;
         }
 
-        transformCur[0] += matX.at<float>(0, 0);
-        transformCur[2] += matX.at<float>(1, 0);
+        transformCur[0] += 0.0;
+        transformCur[2] += 0.0;
         transformCur[4] += matX.at<float>(2, 0);
 
         for(int i=0; i<6; i++){
@@ -1416,7 +1417,7 @@ public:
         }
 
         transformCur[1] += matX.at<float>(0, 0);
-        transformCur[3] += matX.at<float>(1, 0);
+        transformCur[3] += 0.0;
         transformCur[5] += matX.at<float>(2, 0);
 
         for(int i=0; i<6; i++){
