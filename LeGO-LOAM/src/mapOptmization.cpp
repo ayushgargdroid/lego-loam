@@ -245,6 +245,7 @@ private:
     bool northp;
     std::unordered_map<int,std::vector<int>> loamTimeStamp;
     std::unordered_map<double,double> loamTimeStampZ;
+    std::vector<float> gpsX, gpsY;
     double last;
     int gpsCount;
 
@@ -387,7 +388,7 @@ public:
 
         // With earlier values 1e-2, 1e-2, 1e-2 worked
         gtsam::Vector Vector3(3);
-        Vector3 << 1e-2, 1e-2, 1e-2;
+        Vector3 << 1e4, 1e4, 1e4;
         gpsNoise = noiseModel::Diagonal::Variances(Vector3);
 
         matA0 = cv::Mat (5, 3, CV_32F, cv::Scalar::all(0));
@@ -735,12 +736,16 @@ public:
                 }
             }
             double finTimeStamp = sec*1000000.0 + it->second[i];
-            // std::lock_guard<std::mutex> lock(mtx);
+            std::lock_guard<std::mutex> lock(mtx);
             // gtSAMgraph.add(GPSPose3Factor(finTimeStamp, gtsam::Point3(t_x, t_y, loamTimeStampZ[finTimeStamp]), gpsNoise));
-            // isam->update(gtSAMgraph);
-            // isam->update();
-            // aLoopIsClosed = true;
-            // gtSAMgraph.resize(0);
+            gtSAMgraph.add(GPSPose3Factor(finTimeStamp, gtsam::Point3(t_x, t_y, 0.0), gpsNoise));
+            gpsX.push_back(t_x);
+            gpsY.push_back(t_y);
+            ROS_INFO("GPS size: %d", gpsX.size());
+            isam->update(gtSAMgraph);
+            isam->update();
+            aLoopIsClosed = true;
+            gtSAMgraph.resize(0);
         }
     }
 
@@ -922,6 +927,20 @@ public:
         pcl::io::savePCDFileASCII(fileDirectory+"cornerMap.pcd", *cornerMapCloudDS);
         pcl::io::savePCDFileASCII(fileDirectory+"surfaceMap.pcd", *surfaceMapCloudDS);
         pcl::io::savePCDFileASCII(fileDirectory+"trajectory.pcd", *cloudKeyPoses3D);
+
+        std::ofstream outdata;
+        outdata.open("/home/ayush/legoloam_gps1e3.tum");
+        for(int it = 0; it < cloudKeyPoses3D->points.size(); it++)
+        {
+            outdata<<it<<" "<<cloudKeyPoses3D->points[it].z<<" "<<cloudKeyPoses3D->points[it].x<<" "<<cloudKeyPoses3D->points[it].y<<" 0.0 0.0 0.0 1.0"<<std::endl;
+        }
+
+        std::ofstream gpsdata;
+        gpsdata.open("/home/ayush/gps.tum");
+        for(int it = 0; it < gpsX.size(); it++)
+        {
+            gpsdata<<it<<" "<<gpsX[it]<<" "<<gpsY[it]<<" 0.0 0.0 0.0 0.0 1.0"<<std::endl;
+        }
     }
 
     void publishGlobalMap(){
@@ -1101,7 +1120,8 @@ public:
         gtsam::Pose3 poseFrom = Pose3(Rot3::RzRyRx(roll, pitch, yaw), Point3(x, y, z));
         gtsam::Pose3 poseTo = pclPointTogtsamPose3(cloudKeyPoses6D->points[closestHistoryFrameID]);
         gtsam::Vector Vector6(6);
-        float noiseScore = icp.getFitnessScore();
+        float noiseScore = icp.getFitnessScore() * 1e-1;
+        // float noiseScore = icp.getFitnessScore();
         Vector6 << noiseScore, noiseScore, noiseScore, noiseScore, noiseScore, noiseScore;
         constraintNoise = noiseModel::Diagonal::Variances(Vector6);
         /* 
@@ -1477,12 +1497,19 @@ public:
             matX = matP * matX2;
         }
 
-        transformTobeMapped[0] += matX.at<float>(0, 0);
+        transformTobeMapped[0] += 0.0;
         transformTobeMapped[1] += matX.at<float>(1, 0);
-        transformTobeMapped[2] += matX.at<float>(2, 0);
+        transformTobeMapped[2] += 0.0;
         transformTobeMapped[3] += matX.at<float>(3, 0);
-        transformTobeMapped[4] += matX.at<float>(4, 0);
+        transformTobeMapped[4] += 0.0;
         transformTobeMapped[5] += matX.at<float>(5, 0);
+
+        // transformTobeMapped[0] += matX.at<float>(0, 0);
+        // transformTobeMapped[1] += matX.at<float>(1, 0);
+        // transformTobeMapped[2] += matX.at<float>(2, 0);
+        // transformTobeMapped[3] += matX.at<float>(3, 0);
+        // transformTobeMapped[4] += matX.at<float>(4, 0);
+        // transformTobeMapped[5] += matX.at<float>(5, 0);
 
         float deltaR = sqrt(
                             pow(pcl::rad2deg(matX.at<float>(0, 0)), 2) +
@@ -1528,6 +1555,8 @@ public:
         currentRobotPosPoint.x = transformAftMapped[3];
         currentRobotPosPoint.y = transformAftMapped[4];
         currentRobotPosPoint.z = transformAftMapped[5];
+
+        transformAftMapped[0] = transformAftMapped[2] = transformAftMapped[4] = 0.0;
 
         bool saveThisKeyFrame = true;
         if (sqrt((previousRobotPosPoint.x-currentRobotPosPoint.x)*(previousRobotPosPoint.x-currentRobotPosPoint.x)

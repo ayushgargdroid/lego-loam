@@ -5,6 +5,7 @@ Panels:
     Property Tree Widget:
       Expanded:
         - /TF1/Frames1
+        - /Path1
         - /PoseWithCovariance1/Covariance1
         - /PoseWithCovariance1/Covariance1/Orientation1
       Splitter Ratio: 0.7039999961853027
@@ -347,7 +348,7 @@ Visualization Manager:
       Enabled: true
       Invert Rainbow: false
       Max Color: 255; 255; 255
-      Max Intensity: 10
+      Max Intensity: 15
       Min Color: 0; 0; 0
       Min Intensity: 0
       Name: Trajectory
@@ -425,8 +426,8 @@ Visualization Manager:
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
-        Max Value: 16.16912841796875
-        Min Value: -4.045078277587891
+        Max Value: 21.793607711791992
+        Min Value: -3.325660467147827
         Value: true
       Axis: Y
       Channel Name: intensity
@@ -515,7 +516,7 @@ Visualization Manager:
     - Alpha: 1
       Buffer Length: 1
       Class: rviz/Path
-      Color: 239; 41; 41
+      Color: 255; 255; 255
       Enabled: true
       Head Diameter: 0.30000001192092896
       Head Length: 0.20000000298023224
@@ -614,25 +615,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 15.192423820495605
+      Distance: 131.26268005371094
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 0.4331311881542206
-        Y: 0.3471205234527588
-        Z: -0.21488690376281738
+        X: 0.914717972278595
+        Y: -7.512992858886719
+        Z: 3.271167516708374
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 1.0597970485687256
+      Pitch: 1.5697963237762451
       Target Frame: base_link
       Value: Orbit (rviz)
-      Yaw: 3.1705005168914795
+      Yaw: 4.665503025054932
     Saved: ~
 Window Geometry:
   Camera:
